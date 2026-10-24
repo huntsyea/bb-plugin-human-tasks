@@ -115,9 +115,9 @@ bb human-tasks add --title "…" --instructions "…" [--kind setup] [--blocking
 - Agent tools only act on tasks their own thread created, and only you finish,
   reopen, dismiss, or delete tasks: from the page or the in-thread form. The
   shell command has no way to do those things.
-- A thread listing tasks sees its own project only, and not your notes,
-  answers, or questions on tasks it didn't create or join. Duplicates only
-  merge within one project.
+- Your note or answer goes only to the thread that asked. Threads that asked
+  for the same thing are told it's done, not what you wrote. A thread listing
+  tasks sees its own project only. Duplicates only merge within one project.
 - These are guard rails, not a security boundary: bb gives plugins no way to
   tell its app apart from an agent calling the plugin's API directly, and
   plugins are full-trust code. Don't put anything in a task you wouldn't let

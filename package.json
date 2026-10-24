@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-human-tasks",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The steps only you can do, handed over by bb agents in one checklist.",
   "keywords": [
     "bb-plugin",

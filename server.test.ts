@@ -453,6 +453,20 @@ describe("boundaries between threads and projects", () => {
     expect(toWatcher).toContain("create your own task");
   });
 
+  it("sends the user's reply only to the thread that asked, not to threads that joined", async () => {
+    const { harness, create, list, setStatus, sends } = await setup({ thr_a: live("thr_a"), thr_b: live("thr_b") });
+    await create("thr_a");
+    await create("thr_b");
+    await setStatus((await list())[0]!.id, "done", "the code is 4242");
+    const [toRequester, toWatcher] = sends().map((send) => send.input[0]!.text);
+    expect(toRequester).toContain("the code is 4242");
+    expect(toWatcher).not.toContain("4242");
+    const fromWatcher = JSON.stringify(
+      await harness.behavior.callAgentTool("human_task_list", { include_finished: true }, { threadId: "thr_b", projectId: "proj_1" }),
+    );
+    expect(fromWatcher).not.toContain("4242");
+  });
+
   it("has no shell commands that speak for the user", async () => {
     const { harness, create, list } = await setup({ thr_a: live("thr_a") });
     await create("thr_a");

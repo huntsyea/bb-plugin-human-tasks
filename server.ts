@@ -374,7 +374,12 @@ function secretCommand(todo: Todo): string | null {
 function completionMessage(todo: Todo, role: "requester" | "watcher"): string {
   const lines = [
     `[Human tasks] The user finished "${todo.title}" (task ${todo.id}).${role === "watcher" ? " You asked for this too." : ""}`,
-    todo.completionNote ? `Their reply: ${todo.completionNote}` : "They left no note.",
+    // The user's reply is for the thread that asked; threads that joined only learn it's done.
+    role === "requester"
+      ? todo.completionNote
+        ? `Their reply: ${todo.completionNote}`
+        : "They left no note."
+      : "Their reply went to the thread that asked. If you need it, ask the user.",
   ];
   const command = role === "requester" ? secretCommand(todo) : null;
   if (command) lines.push(`Next, collect the credentials securely with: ${command}`, "Never ask for them in chat, and never print the env file.");
@@ -1444,13 +1449,13 @@ export default async function plugin(bb: BbPluginApi) {
       include_finished: z.boolean().default(false),
     }),
     async execute({ scope, include_finished }, { threadId, projectId }) {
-      const mine = (todo: Todo) => todo.sourceThreadId === threadId || todo.watcherThreadIds.includes(threadId);
-      // "all" means all in this project; other threads' notes and answers stay private.
+      const joined = (todo: Todo) => todo.sourceThreadId === threadId || todo.watcherThreadIds.includes(threadId);
+      // "all" means all in this project. Only the thread that asked sees the user's notes and answers.
       const todos = listTodos()
-        .filter((todo) => (scope === "all" ? todo.sourceProjectId === projectId : mine(todo)))
+        .filter((todo) => (scope === "all" ? todo.sourceProjectId === projectId : joined(todo)))
         .filter((todo) => include_finished || !isFinished(todo))
         .slice(0, 50)
-        .map((todo) => (mine(todo) ? todo : redacted(todo)));
+        .map((todo) => (todo.sourceThreadId === threadId ? todo : redacted(todo)));
       if (todos.length === 0) return "No matching human tasks.";
       return (await withRelations(todos)).map(formatTodoDetail).join("\n\n---\n\n");
     },
@@ -1470,8 +1475,7 @@ export default async function plugin(bb: BbPluginApi) {
   const visibleTo = (ctx: { threadId?: string | undefined; projectId?: string | undefined }) => (todo: Todo): Todo | null => {
     if (!ctx.threadId) return todo;
     if (ctx.projectId && todo.sourceProjectId !== ctx.projectId) return null;
-    const mine = todo.sourceThreadId === ctx.threadId || todo.watcherThreadIds.includes(ctx.threadId);
-    return mine ? todo : redacted(todo);
+    return todo.sourceThreadId === ctx.threadId ? todo : redacted(todo);
   };
 
   bb.cli.register(
