@@ -16,10 +16,13 @@ export type MoveTo = (status: BoardStatus) => void;
 
 export const BOARD_COLUMN_TITLE: Record<BoardStatus, string> = { open: "To do", in_progress: "In progress", done: "Done" };
 
-/** Where a card may go from its column. A card the agent is doing can only be checked off. */
+/**
+ * Where a card may go from its column: only the changes the List already offers.
+ * A finished card reopens to To do, as Reopen does (that is also the only move
+ * that clears a hand-back). A card the agent is doing can only be checked off.
+ */
 export function movesFor(task: Pick<TodoView, "status" | "handedBack">): BoardStatus[] {
-  if (task.status === "dismissed") return ["open"];
-  if (task.status === "done") return ["open", "in_progress"];
+  if (task.status === "done" || task.status === "dismissed") return ["open"];
   if (task.handedBack) return ["done"];
   return task.status === "open" ? ["in_progress", "done"] : ["open", "done"];
 }
@@ -84,14 +87,18 @@ export function useColumnDrop(status: BoardStatus): { active: boolean; props: Pi
 /** What a card adds on the Board: drag props on desktop, status buttons on a phone. */
 export function useBoardCard(
   task: TodoView,
-  { expanded, moveTo }: { expanded: boolean; moveTo: MoveTo },
+  { expanded, busy, moveTo }: { expanded: boolean; busy: boolean; moveTo: MoveTo },
 ): { itemProps: Omit<LiHTMLAttributes<HTMLLIElement>, "className">; className?: string; footer: ReactNode } {
   const board = useContext(BoardCardsContext);
-  const latest = useRef(moveTo);
-  latest.current = moveTo;
+  // While the card's last change is on its way, moves wait, as the checkbox does.
+  const guarded: MoveTo = (status) => {
+    if (!busy) moveTo(status);
+  };
+  const latest = useRef(guarded);
+  latest.current = guarded;
   useEffect(() => board?.register(task.id, (status) => latest.current(status)), [board, task.id]);
   if (board === null) return { itemProps: {}, footer: null };
-  if (board.compact) return { itemProps: {}, footer: <MoveButtons task={task} moveTo={moveTo} /> };
+  if (board.compact) return { itemProps: {}, footer: <MoveButtons task={task} busy={busy} moveTo={guarded} /> };
   // Expanded cards hold text to select and a note to type, so only folded ones drag.
   if (expanded) return { itemProps: {}, footer: null };
   return {
@@ -109,20 +116,16 @@ export function useBoardCard(
   };
 }
 
-function MoveButtons({ task, moveTo }: { task: TodoView; moveTo: MoveTo }) {
+function MoveButtons({ task, busy, moveTo }: { task: TodoView; busy: boolean; moveTo: MoveTo }) {
   return (
     <div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
       {movesFor(task).map((status) => (
-        <Button key={status} size="sm" variant="outline" className="max-md:h-11 flex-1" onClick={() => moveTo(status)}>
+        <Button key={status} size="sm" variant="outline" className="max-md:h-11 flex-1" disabled={busy} onClick={() => moveTo(status)}>
           <Icon
             name={status === "done" ? "Check" : status === "in_progress" && task.status === "open" ? "human-tasks/arrow-right" : "human-tasks/rotate"}
             className="size-4"
           />
-          {status === "done"
-            ? "Done"
-            : task.status === "done" || task.status === "dismissed"
-              ? `Reopen in ${BOARD_COLUMN_TITLE[status]}`
-              : `Move to ${BOARD_COLUMN_TITLE[status]}`}
+          {status === "done" ? "Done" : task.status === "done" || task.status === "dismissed" ? "Reopen" : `Move to ${BOARD_COLUMN_TITLE[status]}`}
         </Button>
       ))}
     </div>

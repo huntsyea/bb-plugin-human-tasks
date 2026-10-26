@@ -89,7 +89,7 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
   };
 
   // The Board moves a card only through this, so Done is always the checkbox's path.
-  const board = useBoardCard(task, { expanded, moveTo: (status) => (status === "done" ? toggleDone(true) : void actions.setStatus(status)) });
+  const board = useBoardCard(task, { expanded, busy: actions.busy, moveTo: (status) => (status === "done" ? toggleDone(true) : void actions.setStatus(status)) });
 
   const ask = async () => {
     if (note === "") return focusNote();
@@ -259,7 +259,7 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
       </div>
 
       {expanded ? (
-        <div className="space-y-3 border-t border-border px-3 pb-3 pt-3 sm:pl-[4.75rem]">
+        <div className="space-y-3 border-t border-border px-3 pb-3 pt-3 md:pl-[4.75rem]">
           {task.agentNote && !finished ? (
             <Callout tone="danger" icon="human-tasks/alert">
               <span className="font-medium">The agent sent this back:</span> {task.agentNote}

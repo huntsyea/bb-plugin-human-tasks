@@ -217,7 +217,7 @@ function TasksView({
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
               <Icon name="human-tasks/eye" className="size-3.5" />
               <span className="flex-1">This is an example with made-up tasks. Nothing here is saved.</span>
-              <button type="button" className="font-medium text-foreground underline underline-offset-2" onClick={() => navigate.toPluginPanel("tasks")}>
+              <button type="button" className="font-medium text-foreground underline underline-offset-2 max-md:min-h-11" onClick={() => navigate.toPluginPanel("tasks")}>
                 Back to your tasks
               </button>
             </div>

@@ -11,9 +11,16 @@ import { Badge } from "./bits";
 /** True on a phone-sized viewport, where cards fold and targets grow to 44px. */
 export const useCompactCards = useIsCompactViewport;
 
-/** The one chip a folded card keeps: blocking first, then the due date. */
+/** The one chip a folded card keeps: the agent doing it, then blocking, then the due date. */
 export function KeyChip({ task }: { task: TodoView }) {
   if (isFinished(task)) return null;
+  if (task.handedBack) {
+    return (
+      <Badge tone="accent" icon="human-tasks/bot" title={task.handbackNote ?? "You asked the agent to do it this time"}>
+        Agent is on it
+      </Badge>
+    );
+  }
   if (task.blocking) {
     return (
       <Badge tone="danger" title="The agent's work is stopped until you do this">

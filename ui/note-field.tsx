@@ -101,7 +101,7 @@ export function NoteField({
             This looks like {state.secretWarning}. Notes land in the agent's chat history.
             {task.secrets.length === 0 ? " Ask the agent to request it with `bb secret request` instead." : ""}
           </span>
-          <label className="flex cursor-pointer items-center gap-1.5 text-muted-foreground">
+          <label className="flex cursor-pointer items-center gap-1.5 text-muted-foreground max-md:min-h-11">
             <input
               type="checkbox"
               checked={state.allowSecretLike}

@@ -87,12 +87,15 @@ function task(fields: Partial<TodoView> & Pick<TodoView, "title">): TodoView {
   };
 }
 
-async function renderPage(todos: TodoView[]) {
+async function renderPage(todos: TodoView[], options: { holdStatusCalls?: boolean } = {}) {
   const app = await loadPluginApp(() => import("../app"));
   const panel = app.navPanels.find((entry) => entry.path === "tasks")!;
   const setStatusCalls: { id: string; status: TodoStatus; note?: string }[] = [];
-  // The page only lists and sets status here; any other call fails the test.
-  const rpc: Pick<PluginRpcTestHandlers<typeof rpcContract>, "todos_list" | "todos_set_status"> = {
+  const otherCalls: { method: string; input: unknown }[] = [];
+  const held: (() => void)[] = [];
+  const found = (id: string) => todos.find((t) => t.id === id)! as Todo;
+  // The page lists tasks and changes them through these actions; any other call fails the test.
+  const rpc: Pick<PluginRpcTestHandlers<typeof rpcContract>, "todos_list" | "todos_set_status" | "todos_snooze" | "todos_hand_back"> = {
     todos_list: () => ({
       todos,
       stats: { open: todos.filter((t) => t.status === "open" || t.status === "in_progress").length, blocking: 0, done: 0, doneByAgents: 0 },
@@ -100,13 +103,27 @@ async function renderPage(todos: TodoView[]) {
     }),
     todos_set_status: (input) => {
       setStatusCalls.push(input);
-      const found = todos.find((t) => t.id === input.id)!;
-      return { ...found, status: input.status } as Todo;
+      const result = { ...found(input.id), status: input.status };
+      // Held calls stay in flight until `release`, as a slow server would.
+      return options.holdStatusCalls ? new Promise<Todo>((resolve) => held.push(() => resolve(result))) : result;
+    },
+    todos_snooze: (input) => {
+      otherCalls.push({ method: "todos_snooze", input });
+      return found(input.id);
+    },
+    todos_hand_back: (input) => {
+      otherCalls.push({ method: "todos_hand_back", input });
+      return found(input.id);
     },
   };
   const view = renderSlot<{ subPath: string }, typeof rpcContract>(panel, { subPath: "" }, { rpc: rpc as PluginRpcTestHandlers<typeof rpcContract> });
   await screen.findByText(todos[0]!.title);
-  return { view, setStatusCalls };
+  const release = async () => {
+    await act(async () => {
+      for (const resolve of held.splice(0)) resolve();
+    });
+  };
+  return { view, setStatusCalls, otherCalls, release };
 }
 
 describe("the List | Board toggle", () => {
@@ -125,9 +142,9 @@ describe("the List | Board toggle", () => {
   });
 });
 
-async function openBoard(todos: TodoView[]) {
+async function openBoard(todos: TodoView[], options: { holdStatusCalls?: boolean } = {}) {
   window.localStorage.setItem("bb-plugin-human-tasks:view", "board");
-  return renderPage(todos);
+  return renderPage(todos, options);
 }
 
 const column = (name: string) => screen.getByRole("region", { name });
@@ -183,8 +200,10 @@ function drag(title: string, to: string) {
 }
 
 describe("moving a card on a desktop Board", () => {
-  it("dragging to Done calls the same server action as checking it off in the List", async () => {
-    const todos = [task({ title: "Check one", blocking: true, waitingInThread: true })];
+  // The server is a mock here: this proves the drop sends the checkbox's exact call. What that call
+  // does (closing the in-thread form, resuming the agent, the secret follow-up) is server.test.ts's job.
+  it("dragging to Done sends the same call as checking it off in the List", async () => {
+    const todos = [task({ title: "Check one" })];
     const list = await renderPage(todos);
     fireEvent.click(screen.getByRole("checkbox", { name: 'Mark "Check one" done' }));
     await waitFor(() => expect(list.setStatusCalls).toEqual([{ id: todos[0]!.id, status: "done" }]));
@@ -193,6 +212,42 @@ describe("moving a card on a desktop Board", () => {
     const board = await openBoard(todos);
     drag("Check one", "Done");
     await waitFor(() => expect(board.setStatusCalls).toEqual(list.setStatusCalls));
+  });
+
+  it("reopens a finished card only to To do, as the List's Reopen does", async () => {
+    const todos = [
+      task({ title: "Agent finished one", status: "done", handedBack: true, doneByAgent: true }),
+      task({ title: "Mine finished one", status: "done" }),
+    ];
+    const { setStatusCalls } = await openBoard(todos);
+    drag("Agent finished one", "In progress");
+    drag("Mine finished one", "In progress");
+    await act(async () => {});
+    expect(setStatusCalls).toEqual([]);
+
+    drag("Agent finished one", "To do");
+    await waitFor(() => expect(setStatusCalls).toEqual([{ id: todos[0]!.id, status: "open" }]));
+  });
+
+  it("lets a card the agent is doing go only to Done", async () => {
+    const todos = [task({ title: "Agent's one", status: "in_progress", handedBack: true })];
+    const { setStatusCalls } = await openBoard(todos);
+    drag("Agent's one", "To do");
+    await act(async () => {});
+    expect(setStatusCalls).toEqual([]);
+    drag("Agent's one", "Done");
+    await waitFor(() => expect(setStatusCalls).toEqual([{ id: todos[0]!.id, status: "done" }]));
+  });
+
+  it("ignores a drop while the card's last change is still on its way", async () => {
+    const todos = [task({ title: "Slow one" })];
+    const { setStatusCalls, release } = await openBoard(todos, { holdStatusCalls: true });
+    drag("Slow one", "In progress");
+    await waitFor(() => expect(setStatusCalls).toHaveLength(1));
+    drag("Slow one", "Done");
+    await act(async () => {});
+    expect(setStatusCalls).toEqual([{ id: todos[0]!.id, status: "in_progress" }]);
+    await release();
   });
 
   it("dragging between To do and In progress sets that status", async () => {
@@ -271,6 +326,44 @@ describe("the Board on a phone", () => {
     fireEvent.click(card("Open one").getByRole("button", { name: "Done" }));
     await waitFor(() => expect(setStatusCalls).toEqual([{ id: todos[0]!.id, status: "done" }]));
   });
+
+  it("offers each card only the moves the List allows", async () => {
+    narrow = true;
+    const todos = [
+      task({ title: "Open one" }),
+      task({ title: "Agent's one", status: "in_progress", handedBack: true }),
+      task({ title: "Agent finished one", status: "done", handedBack: true, doneByAgent: true }),
+    ];
+    const { setStatusCalls } = await openBoard(todos);
+    const moves = (title: string) =>
+      within(screen.getByText(title).closest("li")!)
+        .queryAllByRole("button", { name: /^(Done|Move to|Reopen)/ })
+        .map((button) => button.textContent);
+
+    expect(moves("Open one")).toEqual(["Move to In progress", "Done"]);
+    fireEvent.click(screen.getByRole("radio", { name: /^In progress/ }));
+    expect(moves("Agent's one")).toEqual(["Done"]);
+    fireEvent.click(screen.getByRole("radio", { name: /^Done/ }));
+    expect(moves("Agent finished one")).toEqual(["Reopen"]);
+
+    fireEvent.click(within(screen.getByText("Agent finished one").closest("li")!).getByRole("button", { name: "Reopen" }));
+    await waitFor(() => expect(setStatusCalls).toEqual([{ id: todos[2]!.id, status: "open" }]));
+  });
+
+  it("sends one call for a double tap, and holds other moves until it lands", async () => {
+    narrow = true;
+    const todos = [task({ title: "Tap one" })];
+    const { setStatusCalls, release } = await openBoard(todos, { holdStatusCalls: true });
+    const card = within(screen.getByText("Tap one").closest("li")!);
+    fireEvent.click(card.getByRole("button", { name: "Done" }));
+    fireEvent.click(card.getByRole("button", { name: "Done" }));
+    fireEvent.click(card.getByRole("button", { name: "Move to In progress" }));
+    await act(async () => {});
+    expect(setStatusCalls).toEqual([{ id: todos[0]!.id, status: "done" }]);
+    expect(card.getByRole("button", { name: "Move to In progress" })).toHaveProperty("disabled", true);
+    await release();
+    expect(card.getByRole("button", { name: "Move to In progress" })).toHaveProperty("disabled", false);
+  });
 });
 
 describe("cards on a phone", () => {
@@ -304,14 +397,38 @@ describe("cards on a phone", () => {
     expect(card("Blocker one").getByRole("button", { name: "Let the agent do it" })).toBeTruthy();
   });
 
-  it("keep snooze, dismiss and hand back in the overflow menu", async () => {
+  it("keep the agent's chip on a card it is doing", async () => {
     narrow = true;
-    await renderPage([blocker()]);
-    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
-    const menu = await screen.findByRole("dialog");
-    expect(await within(menu).findByRole("menuitem", { name: "Snooze until tomorrow, 9:00" })).toBeTruthy();
-    expect(within(menu).getByRole("menuitem", { name: /Dismiss/ })).toBeTruthy();
-    expect(within(menu).getByRole("menuitem", { name: "Let the agent do it" })).toBeTruthy();
+    await renderPage([task({ title: "Agent's one", status: "in_progress", handedBack: true, blocking: true })]);
+    const card = within(screen.getByText("Agent's one").closest("li")!);
+    expect(card.getByText("Agent is on it")).toBeTruthy();
+    expect(card.queryByText("Blocking")).toBeNull();
+  });
+
+  it("snooze, dismiss and hand back from the overflow menu", async () => {
+    narrow = true;
+    const todos = [blocker()];
+    const { setStatusCalls, otherCalls } = await renderPage(todos);
+    const pick = async (item: string | RegExp) => {
+      fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+      fireEvent.click(await within(await screen.findByRole("dialog")).findByRole("menuitem", { name: item }));
+      await act(async () => {});
+    };
+
+    await pick("Snooze until tomorrow, 9:00");
+    const tomorrowAtNine = new Date();
+    tomorrowAtNine.setDate(tomorrowAtNine.getDate() + 1);
+    tomorrowAtNine.setHours(9, 0, 0, 0);
+    await pick("Let the agent do it");
+    await pick(/^Dismiss/);
+
+    await waitFor(() =>
+      expect(otherCalls).toEqual([
+        { method: "todos_snooze", input: { id: todos[0]!.id, until: tomorrowAtNine.getTime() } },
+        { method: "todos_hand_back", input: { id: todos[0]!.id } },
+      ]),
+    );
+    await waitFor(() => expect(setStatusCalls).toEqual([{ id: todos[0]!.id, status: "dismissed" }]));
   });
 
   it("stay folded and grouped when snoozed", async () => {
