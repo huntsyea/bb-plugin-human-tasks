@@ -250,10 +250,13 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
         <div className="relative">
           <button type="button" className="block w-full px-3 py-2.5 text-left max-md:min-h-11" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>
             <span className={cn("flex", !compact && "pr-6")}>{title}</span>
-            <span className="mt-2 flex items-center gap-2">
-              {folded ? <KeyChip task={task} /> : null}
-              <RowMeta task={task} className="flex-1" />
-            </span>
+            {/* Opened, the meta line below names the project and the age, so the face doesn't repeat them. */}
+            {folded ? (
+              <span className="mt-2 flex items-center gap-2">
+                <KeyChip task={task} />
+                <RowMeta task={task} className="flex-1" />
+              </span>
+            ) : null}
           </button>
           {compact ? null : <span className="absolute right-1.5 top-1.5">{menu}</span>}
         </div>
@@ -279,7 +282,7 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
             {title}
             <span className="ml-auto flex shrink-0 items-center gap-3">
               {folded ? <KeyChip task={task} /> : null}
-              {compact ? null : <RowMeta task={task} aligned className="w-40" />}
+              {compact || !folded ? null : <RowMeta task={task} aligned className="w-40" />}
             </span>
           </button>
           {compact ? null : menu}

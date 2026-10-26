@@ -544,11 +544,125 @@ describe("List rows on a desktop (BBP-64)", () => {
     expect(row.getByRole("button", { name: "Mark done" })).toBeTruthy();
   });
 
-  it("carry their counts in the group headings and the To do scope, with no stat cards", async () => {
+  it("carry their counts in the group headings and the To do scope", async () => {
     await renderPage([task({ title: "Blocker one", blocking: true }), task({ title: "Plain one" }), task({ title: "Other one" })]);
     expect(screen.getByRole("heading", { name: /^Blocking an agent\s*1/ })).toBeTruthy();
     expect(screen.getByRole("heading", { name: /^Waiting on you\s*2/ })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "To do 3" }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.queryByText("Done by agents")).toBeNull();
+  });
+});
+
+describe("an opened card's meta (BBP-64 review)", () => {
+  // Project "Acme Web", created a minute ago: the header shows "1m", the meta line "1m ago".
+  const opened = () => task({ title: "Meta one", bot: { id: "bot_1", name: "Helper", role: "Engineer", color: "#6d5dfc", mainThreadId: null, via: "thread" } });
+
+  it("shows the project and the age once in an opened List row", async () => {
+    await renderPage([opened()]);
+    unfold("Meta one");
+    const row = cardOf("Meta one");
+    expect(row.getAllByText("Acme Web")).toHaveLength(1);
+    expect(row.getAllByText(/^(1m|1m ago)$/)).toHaveLength(1);
+  });
+
+  it("shows the project and the age once in an opened Board card", async () => {
+    await openBoard([opened()]);
+    unfold("Meta one");
+    const card = cardOf("Meta one");
+    expect(card.getAllByText("Acme Web")).toHaveLength(1);
+    expect(card.getAllByText(/^(1m|1m ago)$/)).toHaveLength(1);
+  });
+
+  it("keeps the project and the age on a folded card", async () => {
+    await renderPage([opened()]);
+    expect(cardOf("Meta one").getByText("Acme Web")).toBeTruthy();
+    expect(cardOf("Meta one").getByText("1m")).toBeTruthy();
+  });
+});
+
+describe("the reopened chip (BBP-64 review)", () => {
+  it("reads Reopened, folded and opened", async () => {
+    narrow = true;
+    await renderPage([task({ title: "Sent back one", agentNote: "The record isn't visible yet." })]);
+    const card = cardOf("Sent back one");
+    expect(card.getByText("Reopened")).toBeTruthy();
+    expect(card.queryByText("Reopened by agent")).toBeNull();
+    unfold("Sent back one");
+    expect(card.getByText("Reopened")).toBeTruthy();
+    expect(card.queryByText("Reopened by agent")).toBeNull();
+  });
+});
+
+describe("the top cards (BBP-64 review)", () => {
+  const todos = () => [
+    task({ title: "Blocker one", blocking: true }),
+    task({ title: "Plain one" }),
+    task({ title: "Other one" }),
+    task({ title: "Finished one", status: "done" }),
+    task({ title: "Dismissed one", status: "dismissed" }),
+    task({ title: "Agent's one", status: "in_progress", handedBack: true }),
+  ];
+  const jumpCard = (name: string) => screen.getByRole("navigation", { name: "Jump to" }).querySelector<HTMLButtonElement>(`button:nth-child(${["Blocked", "Waiting", "Done"].indexOf(name) + 1})`)!;
+
+  it("count Blocked, Waiting and Done as real buttons", async () => {
+    await renderPage(todos());
+    const nav = within(screen.getByRole("navigation", { name: "Jump to" }));
+    expect(nav.getAllByRole("button").map((button) => button.textContent)).toEqual(["1Blocked", "2Waiting", "1Done"]);
+    expect(nav.getByRole("button", { name: "1 Blocked" }).tagName).toBe("BUTTON");
+  });
+
+  it("jump to their List group, and Done switches the scope to Finished", async () => {
+    await renderPage(todos());
+    fireEvent.click(jumpCard("Waiting"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: /^Waiting on you/ })));
+
+    fireEvent.click(jumpCard("Done"));
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Finished" }).getAttribute("aria-checked")).toBe("true"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: /^Finished/ })));
+    expect(screen.getByText("Finished one")).toBeTruthy();
+
+    fireEvent.click(jumpCard("Blocked"));
+    await waitFor(() => expect(screen.getByRole("radio", { name: /^To do/ }).getAttribute("aria-checked")).toBe("true"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: /^Blocking an agent/ })));
+  });
+
+  it("jump to their column on a desktop Board", async () => {
+    await openBoard(todos());
+    fireEvent.click(jumpCard("Done"));
+    await waitFor(() => expect(document.activeElement).toBe(column("Done")));
+    fireEvent.click(jumpCard("Waiting"));
+    await waitFor(() => expect(document.activeElement).toBe(column("To do")));
+  });
+
+  it("show the jumped-to column on a phone Board", async () => {
+    narrow = true;
+    await openBoard([...todos(), task({ title: "Started blocker one", blocking: true, status: "in_progress" })]);
+    const shown = () => screen.getAllByRole("region").map((region) => region.getAttribute("aria-label"));
+    expect(shown()).toEqual(["To do"]);
+    fireEvent.click(jumpCard("Done"));
+    await waitFor(() => expect(shown()).toEqual(["Done"]));
+    await waitFor(() => expect(document.activeElement).toBe(column("Done")));
+    fireEvent.click(jumpCard("Waiting"));
+    await waitFor(() => expect(shown()).toEqual(["To do"]));
+    // Blocked lands on the first blocked card's column.
+    fireEvent.click(jumpCard("Blocked"));
+    await waitFor(() => expect(shown()).toEqual(["To do"]));
+  });
+});
+
+describe("the page top (BBP-64 review)", () => {
+  it("has no text preamble", async () => {
+    await renderPage([task({ title: "Plain one" })]);
+    expect(screen.queryByText(/Steps only you can do/)).toBeNull();
+  });
+
+  it("marks the example with a small chip and a link back, not a banner", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const panel = app.navPanels.find((entry) => entry.path === "tasks")!;
+    const rpc = { todos_list: () => ({ todos: [], stats: { open: 0, blocking: 0, done: 0, doneByAgents: 0 }, bots: [] }) };
+    renderSlot<{ subPath: string }, typeof rpcContract>(panel, { subPath: "example" }, { rpc: rpc as unknown as PluginRpcTestHandlers<typeof rpcContract> });
+    await screen.findByText("Renew the acme.dev domain");
+    expect(screen.getByText("Example")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Back to your tasks" })).toBeTruthy();
+    expect(screen.queryByText(/This is an example with made-up tasks/)).toBeNull();
   });
 });

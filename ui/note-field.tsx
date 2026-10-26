@@ -84,13 +84,14 @@ export function NoteField({
         value={state.note}
         onChange={(event) => state.setNote(event.target.value)}
         maxLength={4000}
-        rows={task.replyPrompt ? 3 : 2}
+        rows={3}
         autoFocus={autoFocus}
         placeholder={notePlaceholder(task)}
         aria-label={task.replyPrompt ?? "Note for the agent"}
         aria-invalid={state.secretWarning !== null && !state.allowSecretLike}
         className={cn(
-          "w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          // Grows to its placeholder and text, so the hint reads in full on a narrow card.
+          "field-sizing-content min-h-16 w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           state.secretWarning && !state.allowSecretLike ? "border-destructive" : "border-input",
         )}
       />

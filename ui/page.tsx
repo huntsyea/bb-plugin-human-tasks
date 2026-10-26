@@ -1,7 +1,7 @@
 // The Human tasks page: what is waiting on you, as a List grouped by urgency or
 // a Board by status, with filters by project, bot, and kind. `/tasks/example`
 // renders made-up tasks.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useBbNavigate } from "@get-bb/plugin-sdk/app";
 import type { TaskKind, TodoView } from "../server";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { KIND_META, isFinished, isSnoozed } from "@/lib/tasks";
 import { cn } from "@/lib/utils";
-import { EmptyState } from "./bits";
+import { Badge, EmptyState } from "./bits";
 import { Board } from "./board";
 import { ActiveFilters, FilterMenu } from "./filter-sheet";
 import type { FilterGroup } from "./filter-sheet";
@@ -18,6 +18,8 @@ import { PreviewContext, previewData } from "./preview";
 import { TaskCard } from "./task-card";
 import { useTasks } from "./use-tasks";
 import { Segmented } from "./segmented";
+import { SummaryCards, useJumpFocus } from "./summary";
+import type { Jump, JumpTarget } from "./summary";
 import { useViewMode } from "./view-mode";
 
 const ALL = "__all__";
@@ -33,6 +35,7 @@ function Group({
   focusId,
   collapsible,
   danger,
+  jumpId,
 }: {
   title: string;
   hint?: string;
@@ -41,12 +44,14 @@ function Group({
   collapsible?: boolean;
   /** Marks the heading of work that is stopping an agent. */
   danger?: boolean;
+  /** Which top card jumps here. */
+  jumpId?: JumpTarget;
 }) {
   const [open, setOpen] = useState(!collapsible || tasks.some((task) => task.id === focusId));
   if (tasks.length === 0) return null;
   return (
     <section className="space-y-2">
-      <h2 className="flex min-w-0 items-center gap-2 px-1 text-sm font-medium text-foreground">
+      <h2 data-jump={jumpId} tabIndex={jumpId ? -1 : undefined} className="flex min-w-0 scroll-mt-4 items-center gap-2 px-1 text-sm font-medium text-foreground focus:outline-none">
         {danger ? <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-destructive" /> : null}
         {collapsible ? (
           <button type="button" className="-ml-1 flex items-center gap-1 rounded-md px-1 hover:bg-state-hover max-md:min-h-11" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
@@ -110,6 +115,8 @@ function TasksView({
   const [project, setProject] = useState(ALL);
   const [bot, setBot] = useState(ALL);
   const [kind, setKind] = useState(ALL);
+  const [jump, setJump] = useState<Jump | null>(null);
+  const page = useRef<HTMLDivElement>(null);
 
   const all = tasks ?? [];
   const count = (match: (task: TodoView) => boolean) => all.filter((task) => !isFinished(task) && match(task)).length;
@@ -141,13 +148,26 @@ function TasksView({
   const focusTask = focusId ? all.find((task) => task.id === focusId) : undefined;
   const effectiveTab: Tab = focusTask && isFinished(focusTask) && tab === "todo" ? "finished" : tab;
 
+  // The top cards count what their jump lands on: the List's first two groups, and the tasks that are done.
+  const blockedTasks = active.filter((task) => task.blocking && !task.handedBack);
+  const waitingTasks = active.filter((task) => !task.blocking && !task.handedBack);
+  const counts: Record<JumpTarget, number> = { blocked: blockedTasks.length, waiting: waitingTasks.length, done: filtered.filter((task) => task.status === "done").length };
+  const jumpTo = (target: JumpTarget) => {
+    if (view === "list") {
+      setTab(target === "done" ? "finished" : "todo");
+      if (focusId && !preview) navigate.toPluginPanel("tasks", { replace: true });
+    }
+    setJump((last) => ({ target, n: (last?.n ?? 0) + 1 }));
+  };
+  useJumpFocus(page, view === "list" ? jump : null, listJumpKey, effectiveTab);
+
   let body: ReactNode;
   if (tasks === null) {
     body = <div className="h-40 animate-pulse rounded-lg bg-muted/40" aria-label="Loading" />;
   } else if (all.length === 0) {
     body = <Onboarding />;
   } else if (view === "board") {
-    body = <Board tasks={filtered} focusId={focusId} />;
+    body = <Board tasks={filtered} focusId={focusId} jump={jump} />;
   } else if (effectiveTab === "todo") {
     body =
       open.length === 0 ? (
@@ -156,29 +176,32 @@ function TasksView({
         </EmptyState>
       ) : (
         <div className="space-y-6">
-          <Group title="Blocking an agent" hint="its work is stopped until you do these" tasks={active.filter((task) => task.blocking && !task.handedBack)} focusId={focusId} danger />
-          <Group title="Waiting on you" tasks={active.filter((task) => !task.blocking && !task.handedBack)} focusId={focusId} />
+          <Group title="Blocking an agent" hint="its work is stopped until you do these" tasks={blockedTasks} focusId={focusId} danger jumpId="blocked" />
+          <Group title="Waiting on you" tasks={waitingTasks} focusId={focusId} jumpId="waiting" />
           <Group title="The agent is on it" hint="you let the agent do these" tasks={active.filter((task) => task.handedBack)} focusId={focusId} />
           <Group title="Snoozed" hint="they come back with a reminder" tasks={open.filter(isSnoozed)} focusId={focusId} collapsible />
         </div>
       );
   } else {
-    body = finished.length === 0 ? <EmptyState icon="human-tasks/inbox" title="Nothing finished yet" /> : <Group title="Finished" tasks={finished} focusId={focusId} />;
+    body = finished.length === 0 ? <EmptyState icon="human-tasks/inbox" title="Nothing finished yet" /> : <Group title="Finished" tasks={finished} focusId={focusId} jumpId="done" />;
   }
 
   return (
     <PreviewContext.Provider value={preview}>
       <div className="h-full min-h-0 flex-1 overflow-y-auto">
-        <div className={cn("mx-auto box-border w-full max-w-4xl space-y-4 p-4 md:px-6 md:py-5", view === "board" && "md:max-w-6xl")}>
+        <div ref={page} className={cn("mx-auto box-border w-full max-w-4xl space-y-4 p-4 md:px-6 md:py-5", view === "board" && "md:max-w-6xl")}>
           {preview ? (
-            <div className="flex items-center gap-2 rounded-md bg-surface-recessed px-3 py-1.5 text-xs text-muted-foreground max-md:py-0">
-              <Icon name="human-tasks/eye" className="size-3.5 shrink-0" />
-              <span className="min-w-0 flex-1">This is an example with made-up tasks. Nothing here is saved.</span>
-              <button type="button" className="shrink-0 font-medium text-foreground underline-offset-2 hover:underline max-md:min-h-11" onClick={() => navigate.toPluginPanel("tasks")}>
+            <div className="flex items-center gap-2 text-xs">
+              <Badge icon="human-tasks/eye" title="Made-up tasks. Nothing here is saved.">
+                Example
+              </Badge>
+              <button type="button" className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline max-md:min-h-11" onClick={() => navigate.toPluginPanel("tasks")}>
                 Back to your tasks
               </button>
             </div>
           ) : null}
+
+          {all.length > 0 ? <SummaryCards counts={counts} onJump={jumpTo} /> : null}
 
           {all.length > 0 ? (
             <div className="flex items-center gap-2">
@@ -232,6 +255,9 @@ function TasksView({
     </PreviewContext.Provider>
   );
 }
+
+/** The List marks its groups with the top cards' own names. */
+const listJumpKey = (target: JumpTarget) => target;
 
 export function TasksPage({ subPath }: { subPath: string }) {
   const live = useTasks();

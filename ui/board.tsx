@@ -2,7 +2,7 @@
 // desktop, where cards can be dragged between columns; one column at a time on
 // a phone, where an unfolded card moves through its status buttons instead.
 // Every move goes through the card's own check-off path (see board-card.tsx).
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { TodoView } from "../server";
 import { Icon } from "@/components/ui/icon";
@@ -12,6 +12,8 @@ import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport
 import { BOARD_COLUMN_TITLE, BoardCardsProvider, useColumnDrop } from "./board-card";
 import type { BoardStatus } from "./board-card";
 import { Segmented } from "./segmented";
+import { useJumpFocus } from "./summary";
+import type { Jump, JumpTarget } from "./summary";
 import { TaskCard } from "./task-card";
 
 const COLUMNS: readonly BoardStatus[] = ["open", "in_progress", "done"];
@@ -23,6 +25,14 @@ const COLUMN_ICON: Record<BoardStatus, { icon: string; className: string }> = {
 
 function columnOf(task: TodoView): BoardStatus {
   return task.status === "dismissed" ? "done" : task.status;
+}
+
+/** Where a top card lands on the Board: Blocked goes to the first blocked card's column. */
+function columnFor(target: JumpTarget, tasks: TodoView[]): BoardStatus {
+  if (target === "done") return "done";
+  if (target === "waiting") return "open";
+  const blocked = tasks.find((task) => task.blocking && !task.handedBack && task.status !== "done" && task.status !== "dismissed" && !isSnoozed(task));
+  return blocked ? columnOf(blocked) : "open";
 }
 
 function Cards({ tasks, focusId }: { tasks: TodoView[]; focusId: string | null }) {
@@ -76,9 +86,11 @@ function Column({
   return (
     <section
       aria-label={title}
+      data-jump={status}
+      tabIndex={-1}
       {...drop.props}
       className={cn(
-        "flex min-w-0 flex-col gap-1.5 transition-colors",
+        "flex min-w-0 scroll-mt-4 flex-col gap-1.5 transition-colors focus:outline-none",
         !compact && "min-h-32 rounded-lg bg-surface-recessed p-1.5",
         drop.active && "bg-state-hover ring-1 ring-inset ring-ring",
       )}
@@ -96,12 +108,20 @@ function Column({
   );
 }
 
-export function Board({ tasks, focusId }: { tasks: TodoView[]; focusId: string | null }) {
+export function Board({ tasks, focusId, jump }: { tasks: TodoView[]; focusId: string | null; jump: Jump | null }) {
   const compact = useIsCompactViewport();
   const focusTask = focusId ? tasks.find((task) => task.id === focusId) : undefined;
   const [showDismissed, setShowDismissed] = useState(focusTask?.status === "dismissed");
   // A phone shows one column; a deep link opens the one holding its task.
   const [shown, setShown] = useState<BoardStatus>(focusTask ? columnOf(focusTask) : "open");
+  // A top card's jump shows its column on a phone, then scrolls to and focuses it.
+  const root = useRef<HTMLDivElement>(null);
+  const [handled, setHandled] = useState<Jump | null>(null);
+  if (jump !== handled) {
+    setHandled(jump);
+    if (jump && compact) setShown(columnFor(jump.target, tasks));
+  }
+  useJumpFocus(root, jump, (target) => columnFor(target, tasks), shown);
   const inColumn = (status: BoardStatus) =>
     tasks.filter((task) => task.status === status || (status === "done" && showDismissed && task.status === "dismissed"));
 
@@ -116,7 +136,7 @@ export function Board({ tasks, focusId }: { tasks: TodoView[]; focusId: string |
           options={COLUMNS.map((status) => ({ value: status, label: BOARD_COLUMN_TITLE[status], count: inColumn(status).length }))}
         />
       ) : null}
-      <div className="grid gap-2 md:grid-cols-3 md:items-start">
+      <div ref={root} className="grid gap-2 md:grid-cols-3 md:items-start">
         {(compact ? [shown] : COLUMNS).map((status) => {
           const members = inColumn(status);
           const awake = members.filter((task) => status === "done" || !isSnoozed(task));

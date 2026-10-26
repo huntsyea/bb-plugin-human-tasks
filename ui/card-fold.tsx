@@ -46,7 +46,7 @@ export function KeyChip({ task }: { task: TodoView }) {
   if (task.agentNote) {
     return (
       <Badge tone="danger" icon="human-tasks/alert" title={task.agentNote}>
-        Reopened by agent
+        Reopened
       </Badge>
     );
   }

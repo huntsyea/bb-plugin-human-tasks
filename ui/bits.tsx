@@ -85,7 +85,7 @@ export function TaskBadges({ task }: { task: TodoView }) {
       ) : null}
       {task.agentNote && !finished ? (
         <Badge tone="danger" icon="human-tasks/alert" title={task.agentNote}>
-          Reopened by agent
+          Reopened
         </Badge>
       ) : null}
       {task.question && !finished ? (
