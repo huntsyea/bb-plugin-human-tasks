@@ -13,15 +13,14 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Icon } from "@/components/ui/icon";
-import { firstLink, isFinished, isSnoozed, snoozePresets, timeAgo } from "@/lib/tasks";
+import { firstLink, isFinished, isSnoozed, timeAgo } from "@/lib/tasks";
 import { cn } from "@/lib/utils";
 import { useTaskActions } from "./actions";
+import { useBoardCard } from "./board-card";
+import { KeyChip, SnoozeItems, useCompactCards } from "./card-fold";
 import { KindIcon, Relations, TaskBadges } from "./bits";
 import { NoteField, useNoteState } from "./note-field";
 import { usePreview } from "./preview";
@@ -47,6 +46,8 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
   const preview = usePreview();
   const actions = useTaskActions(task.id);
   const [expanded, setExpanded] = useState(focused);
+  const compact = useCompactCards();
+  const folded = compact && !expanded;
   const noteState = useNoteState();
   const finished = isFinished(task);
   const link = finished ? null : firstLink(task.instructions);
@@ -87,6 +88,9 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
     void finish("done");
   };
 
+  // The Board moves a card only through this, so Done is always the checkbox's path.
+  const board = useBoardCard(task, { expanded, moveTo: (status) => (status === "done" ? toggleDone(true) : void actions.setStatus(status)) });
+
   const ask = async () => {
     if (note === "") return focusNote();
     if (await actions.ask(note)) noteState.setNote("");
@@ -111,49 +115,56 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
   return (
     <li
       ref={ref}
+      {...board.itemProps}
       className={cn(
         "group rounded-xl border bg-card transition-shadow",
         task.blocking && !finished ? "border-destructive/30" : "border-border",
         expanded && "shadow-sm",
         focused && "ring-1 ring-ring",
+        board.className,
       )}
     >
       <div className="flex items-start gap-3 p-3">
-        <Checkbox
-          className="mt-2"
-          checked={task.status === "done"}
-          disabled={actions.busy || task.status === "dismissed"}
-          onCheckedChange={(checked) => toggleDone(checked === true)}
-          aria-label={task.status === "done" ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
-        />
-        <KindIcon kind={task.kind} blocking={task.blocking} finished={finished} />
+        {/* On a phone the label is the checkbox's 44px touch target. */}
+        <label className={compact ? "-m-2 flex size-11 shrink-0 cursor-pointer items-center justify-center" : "contents"}>
+          <Checkbox
+            className={compact ? "size-5" : "mt-2"}
+            checked={task.status === "done"}
+            disabled={actions.busy || task.status === "dismissed"}
+            onCheckedChange={(checked) => toggleDone(checked === true)}
+            aria-label={task.status === "done" ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
+          />
+        </label>
+        {compact ? null : <KindIcon kind={task.kind} blocking={task.blocking} finished={finished} />}
         <div className="min-w-0 flex-1">
-          <button type="button" className="w-full text-left" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>
+          <button type="button" className="w-full text-left max-md:min-h-11" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>
             <span className={cn("text-sm font-medium leading-5", finished && "text-muted-foreground line-through")}>{task.title}</span>
             <span className="ml-1.5 inline-flex flex-wrap gap-1 align-[1px]">
-              <TaskBadges task={task} />
+              {folded ? <KeyChip task={task} /> : <TaskBadges task={task} />}
             </span>
           </button>
-          <div className="mt-1">
-            <Relations task={task}>
-              {link ? (
-                <button
-                  type="button"
-                  title={`Open ${link.url}`}
-                  onClick={() => (preview ? toast("This is an example. Nothing is saved.") : navigate.openUrl(link.url))}
-                  className="inline-flex max-w-[15rem] items-center gap-1 rounded px-1 py-0.5 font-medium text-primary hover:bg-state-hover"
-                >
-                  <Icon name="human-tasks/external" className="size-3.5 shrink-0" />
-                  <span className="truncate">{link.host}</span>
-                </button>
-              ) : null}
-            </Relations>
-          </div>
+          {folded ? null : (
+            <div className="mt-1 max-md:[&_button]:min-h-11">
+              <Relations task={task}>
+                {link ? (
+                  <button
+                    type="button"
+                    title={`Open ${link.url}`}
+                    onClick={() => (preview ? toast("This is an example. Nothing is saved.") : navigate.openUrl(link.url))}
+                    className="inline-flex max-w-[15rem] items-center gap-1 rounded px-1 py-0.5 font-medium text-primary hover:bg-state-hover"
+                  >
+                    <Icon name="human-tasks/external" className="size-3.5 shrink-0" />
+                    <span className="truncate">{link.host}</span>
+                  </button>
+                ) : null}
+              </Relations>
+            </div>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
           <span className="flex items-center gap-0.5">
-            {!finished && !task.handedBack ? (
+            {!finished && !task.handedBack && !compact ? (
               <Button
                 size="icon"
                 variant="ghost"
@@ -167,11 +178,11 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
             ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" aria-label="More actions">
+                <Button size="icon" variant="ghost" className="size-7 text-muted-foreground max-md:-m-2 max-md:size-11" aria-label="More actions">
                   <Icon name="human-tasks/more" className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-52">
+              <DropdownMenuContent align="end" className="min-w-52 max-md:[&>[role=menuitem]]:min-h-11">
                 {finished ? (
                   <DropdownMenuItem onSelect={() => void actions.setStatus("open")}>
                     <Icon name="human-tasks/rotate" className="size-4" />
@@ -189,19 +200,7 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
                         Unsnooze
                       </DropdownMenuItem>
                     ) : (
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <Icon name="human-tasks/snooze" className="size-4" />
-                          Snooze
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>
-                          {snoozePresets().map((preset) => (
-                            <DropdownMenuItem key={preset.label} onSelect={() => void actions.snooze(preset.until)}>
-                              {preset.label}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
+                      <SnoozeItems onSnooze={(until) => void actions.snooze(until)} />
                     )}
                     <DropdownMenuItem disabled={!threadLive} onSelect={focusNote}>
                       <Icon name="human-tasks/question" className="size-4" />
@@ -245,15 +244,17 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
               </DropdownMenuContent>
             </DropdownMenu>
           </span>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="size-7 text-muted-foreground"
-            aria-label={expanded ? "Collapse" : "Expand"}
-            onClick={() => setExpanded((value) => !value)}
-          >
-            <Icon name="ChevronDown" className={cn("size-4 transition-transform", expanded && "rotate-180")} />
-          </Button>
+          {compact ? null : (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7 text-muted-foreground"
+              aria-label={expanded ? "Collapse" : "Expand"}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              <Icon name="ChevronDown" className={cn("size-4 transition-transform", expanded && "rotate-180")} />
+            </Button>
+          )}
         </div>
       </div>
 
@@ -326,7 +327,7 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
           {!finished && !task.handedBack ? <NoteField task={task} state={noteState} inputRef={noteRef} /> : null}
 
           {!finished ? (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 max-md:[&>button]:h-11">
               {task.handedBack ? (
                 <>
                   {task.thread && threadLive && !preview ? (
@@ -361,6 +362,7 @@ export function TaskCard({ task, focused }: { task: TodoView; focused: boolean }
         </div>
       ) : null}
 
+      {board.footer}
     </li>
   );
 }

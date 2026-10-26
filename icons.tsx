@@ -198,4 +198,17 @@ export const PLUGIN_ICONS: Record<string, ReturnType<typeof lucide>> = {
       <path d="M3 3v5h5" />
     </>,
   ),
+  "human-tasks/filter": lucide(
+    <>
+      <path d="M3 6h18" />
+      <path d="M7 12h10" />
+      <path d="M10 18h4" />
+    </>,
+  ),
+  "human-tasks/arrow-right": lucide(
+    <>
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </>,
+  ),
 };

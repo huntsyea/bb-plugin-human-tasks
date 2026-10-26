@@ -23,6 +23,8 @@
   "include": [
     "server.ts",
     "server.test.ts",
+    "tests",
+    "vitest.config.ts",
     "app.tsx",
     "icons.tsx",
     "ui",

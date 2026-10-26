@@ -10,9 +10,13 @@ import { Icon } from "@/components/ui/icon";
 import { KIND_META, isFinished, isSnoozed } from "@/lib/tasks";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "./bits";
+import { Board } from "./board";
+import { Filters } from "./filter-sheet";
 import { PreviewContext, previewData } from "./preview";
 import { TaskCard } from "./task-card";
 import { useTasks } from "./use-tasks";
+import { Segmented } from "./segmented";
+import { useViewMode } from "./view-mode";
 
 const ALL = "__all__";
 const NONE = "__none__";
@@ -41,7 +45,7 @@ function FilterSelect({
       value={value}
       onChange={(event) => onChange(event.target.value)}
       className={cn(
-        "h-8 max-w-[11rem] cursor-pointer rounded-md border bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        "h-8 max-w-[11rem] cursor-pointer max-md:h-11 max-md:w-full max-md:max-w-none rounded-md border bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         value === ALL ? "border-border text-muted-foreground" : "border-foreground/30 text-foreground",
       )}
     >
@@ -95,7 +99,7 @@ function Group({
     <section className="space-y-2">
       <h2 className="flex items-baseline gap-2 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {collapsible ? (
-          <button type="button" className="flex items-center gap-1 uppercase hover:text-foreground" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+          <button type="button" className="flex items-center gap-1 uppercase hover:text-foreground max-md:min-h-11" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
             <Icon name="ChevronRight" className={cn("size-3 transition-transform", open && "rotate-90")} />
             {title}
           </button>
@@ -152,6 +156,7 @@ function TasksView({
 }: ReturnType<typeof useTasks> & { focusId: string | null; preview: boolean }) {
   const navigate = useBbNavigate();
   const [tab, setTab] = useState<Tab>("todo");
+  const [view, setView] = useViewMode();
   const [project, setProject] = useState(ALL);
   const [bot, setBot] = useState(ALL);
   const [kind, setKind] = useState(ALL);
@@ -184,6 +189,8 @@ function TasksView({
     body = <div className="h-40 animate-pulse rounded-xl bg-muted/40" aria-label="Loading" />;
   } else if (all.length === 0) {
     body = <Onboarding />;
+  } else if (view === "board") {
+    body = <Board tasks={filtered} focusId={focusId} />;
   } else if (effectiveTab === "todo") {
     body =
       open.length === 0 ? (
@@ -205,7 +212,7 @@ function TasksView({
   return (
     <PreviewContext.Provider value={preview}>
       <div className="h-full min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto box-border w-full max-w-3xl space-y-5 p-4 md:p-6">
+        <div className={cn("mx-auto box-border w-full max-w-3xl space-y-5 p-4 md:p-6", view === "board" && "md:max-w-6xl")}>
           {preview ? (
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
               <Icon name="human-tasks/eye" className="size-3.5" />
@@ -230,38 +237,58 @@ function TasksView({
 
           {all.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2">
-              <div role="tablist" className="inline-flex rounded-lg bg-muted p-0.5">
-                {(
-                  [
-                    ["todo", "To do", stats?.open ?? 0],
-                    ["finished", "Finished", null],
-                  ] as const
-                ).map(([value, label, total]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="tab"
-                    aria-selected={effectiveTab === value}
-                    onClick={() => {
-                      setTab(value);
-                      if (focusId && !preview) navigate.toPluginPanel("tasks", { replace: true });
-                    }}
-                    className={cn(
-                      "rounded-md px-3 py-1 text-sm transition-colors",
-                      effectiveTab === value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {label}
-                    {total ? <span className="ml-1.5 tabular-nums text-muted-foreground">{total}</span> : null}
-                  </button>
-                ))}
-              </div>
-              <span className="flex-1" />
-              <FilterSelect label="Filter by project" allLabel="All projects" value={project} onChange={setProject} items={projectItems} />
-              {botItems.length > 0 ? (
-                <FilterSelect label="Filter by bot" allLabel="All bots" value={bot} onChange={setBot} items={botItems} noneLabel="No bot" />
+              <Segmented
+                label="View"
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: "list", label: "List" },
+                  { value: "board", label: "Board" },
+                ]}
+              />
+              {view === "list" ? (
+                <div role="tablist" className="inline-flex rounded-lg bg-muted p-0.5">
+                  {(
+                    [
+                      ["todo", "To do", stats?.open ?? 0],
+                      ["finished", "Finished", null],
+                    ] as const
+                  ).map(([value, label, total]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="tab"
+                      aria-selected={effectiveTab === value}
+                      onClick={() => {
+                        setTab(value);
+                        if (focusId && !preview) navigate.toPluginPanel("tasks", { replace: true });
+                      }}
+                      className={cn(
+                        "rounded-md px-3 py-1 text-sm transition-colors max-md:min-h-11",
+                        effectiveTab === value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {label}
+                      {total ? <span className="ml-1.5 tabular-nums text-muted-foreground">{total}</span> : null}
+                    </button>
+                  ))}
+                </div>
               ) : null}
-              <FilterSelect label="Filter by kind" allLabel="All kinds" value={kind} onChange={setKind} items={kindItems} />
+              <span className="flex-1" />
+              <Filters
+                active={[project, bot, kind].filter((value) => value !== ALL).length}
+                onClear={() => {
+                  setProject(ALL);
+                  setBot(ALL);
+                  setKind(ALL);
+                }}
+              >
+                <FilterSelect label="Filter by project" allLabel="All projects" value={project} onChange={setProject} items={projectItems} />
+                {botItems.length > 0 ? (
+                  <FilterSelect label="Filter by bot" allLabel="All bots" value={bot} onChange={setBot} items={botItems} noneLabel="No bot" />
+                ) : null}
+                <FilterSelect label="Filter by kind" allLabel="All kinds" value={kind} onChange={setKind} items={kindItems} />
+              </Filters>
             </div>
           ) : null}
 
