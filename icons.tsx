@@ -211,4 +211,28 @@ export const PLUGIN_ICONS: Record<string, ReturnType<typeof lucide>> = {
       <path d="m12 5 7 7-7 7" />
     </>,
   ),
+  "human-tasks/list": lucide(
+    <>
+      <path d="M3 12h.01" />
+      <path d="M3 18h.01" />
+      <path d="M3 6h.01" />
+      <path d="M8 12h13" />
+      <path d="M8 18h13" />
+      <path d="M8 6h13" />
+    </>,
+  ),
+  "human-tasks/board": lucide(
+    <>
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+      <path d="M15 3v18" />
+    </>,
+  ),
+  "human-tasks/circle": lucide(<circle cx="12" cy="12" r="9" />),
+  "human-tasks/circle-half": lucide(
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none" />
+    </>,
+  ),
 };

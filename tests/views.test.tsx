@@ -154,6 +154,10 @@ const titlesIn = (name: string) =>
     .queryAllByText(/ one$/)
     .map((node) => node.textContent);
 
+/** Taps a folded card's title to unfold it (or fold it again). */
+const unfold = (title: string) => fireEvent.click(within(screen.getByText(title).closest("li")!).getByRole("button", { name: new RegExp(title) }));
+const cardOf = (title: string) => within(screen.getByText(title).closest("li")!);
+
 describe("the Board's columns", () => {
   it("sorts tasks by status, hides dismissed until asked, and keeps snoozed folded", async () => {
     const todos = [
@@ -287,7 +291,7 @@ describe("a card that needs input before it can be done", () => {
     const { setStatusCalls } = await openBoard(todos);
     fireEvent.click(screen.getByRole("button", { name: /Key one/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "Note for the agent" }), { target: { value: KEY_SHAPED_NOTE } });
-    fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+    unfold("Key one"); // folds it again: only folded cards drag
 
     drag("Key one", "Done");
     await act(async () => {});
@@ -311,19 +315,22 @@ describe("the Board on a phone", () => {
     expect(titlesIn("In progress")).toEqual(["Started one"]);
   });
 
-  it("moves a card with its status buttons, through the same check-off", async () => {
+  it("moves an unfolded card with its status buttons, through the same check-off", async () => {
     narrow = true;
     const todos = [task({ title: "Open one" }), task({ title: "Reply one", replyPrompt: "What's the code?" })];
     const { setStatusCalls } = await openBoard(todos);
-    const card = (title: string) => within(screen.getByText(title).closest("li")!);
 
-    expect(card("Open one").getByRole("button", { name: "Move to In progress" })).toBeTruthy();
     expect(screen.getByText("Open one").closest("li")!.getAttribute("draggable")).toBeNull();
+    unfold("Open one");
+    unfold("Reply one");
+    expect(cardOf("Open one").getByRole("button", { name: "Move to In progress" })).toBeTruthy();
 
-    fireEvent.click(card("Reply one").getByRole("button", { name: "Done" }));
-    expect(await screen.findByRole("textbox", { name: "What's the code?" })).toBeTruthy();
+    fireEvent.click(cardOf("Reply one").getByRole("button", { name: "Mark done" }));
+    const answer = cardOf("Reply one").getByRole("textbox", { name: "What's the code?" });
+    await waitFor(() => expect(document.activeElement).toBe(answer));
+    expect(setStatusCalls).toEqual([]);
 
-    fireEvent.click(card("Open one").getByRole("button", { name: "Done" }));
+    fireEvent.click(cardOf("Open one").getByRole("button", { name: "Mark done" }));
     await waitFor(() => expect(setStatusCalls).toEqual([{ id: todos[0]!.id, status: "done" }]));
   });
 
@@ -335,14 +342,16 @@ describe("the Board on a phone", () => {
       task({ title: "Agent finished one", status: "done", handedBack: true, doneByAgent: true }),
     ];
     const { setStatusCalls } = await openBoard(todos);
-    const moves = (title: string) =>
-      within(screen.getByText(title).closest("li")!)
-        .queryAllByRole("button", { name: /^(Done|Move to|Reopen)/ })
+    const moves = (title: string) => {
+      unfold(title);
+      return cardOf(title)
+        .queryAllByRole("button", { name: /^(Mark done|Move to|Reopen)/ })
         .map((button) => button.textContent);
+    };
 
-    expect(moves("Open one")).toEqual(["Move to In progress", "Done"]);
+    expect(moves("Open one")).toEqual(["Mark done", "Move to In progress"]);
     fireEvent.click(screen.getByRole("radio", { name: /^In progress/ }));
-    expect(moves("Agent's one")).toEqual(["Done"]);
+    expect(moves("Agent's one")).toEqual(["Mark done"]);
     fireEvent.click(screen.getByRole("radio", { name: /^Done/ }));
     expect(moves("Agent finished one")).toEqual(["Reopen"]);
 
@@ -354,9 +363,10 @@ describe("the Board on a phone", () => {
     narrow = true;
     const todos = [task({ title: "Tap one" })];
     const { setStatusCalls, release } = await openBoard(todos, { holdStatusCalls: true });
-    const card = within(screen.getByText("Tap one").closest("li")!);
-    fireEvent.click(card.getByRole("button", { name: "Done" }));
-    fireEvent.click(card.getByRole("button", { name: "Done" }));
+    unfold("Tap one");
+    const card = cardOf("Tap one");
+    fireEvent.click(card.getByRole("button", { name: "Mark done" }));
+    fireEvent.click(card.getByRole("button", { name: "Mark done" }));
     fireEvent.click(card.getByRole("button", { name: "Move to In progress" }));
     await act(async () => {});
     expect(setStatusCalls).toEqual([{ id: todos[0]!.id, status: "done" }]);
@@ -405,10 +415,12 @@ describe("cards on a phone", () => {
     expect(card.queryByText("Blocking")).toBeNull();
   });
 
-  it("snooze, dismiss and hand back from the overflow menu", async () => {
+  it("snooze, dismiss and hand back from the overflow menu, once unfolded", async () => {
     narrow = true;
     const todos = [blocker()];
     const { setStatusCalls, otherCalls } = await renderPage(todos);
+    expect(cardOf("Blocker one").queryByRole("button", { name: "More actions" })).toBeNull();
+    unfold("Blocker one");
     const pick = async (item: string | RegExp) => {
       fireEvent.click(screen.getByRole("button", { name: "More actions" }));
       fireEvent.click(await within(await screen.findByRole("dialog")).findByRole("menuitem", { name: item }));
@@ -447,25 +459,96 @@ describe("filters", () => {
     task({ title: "Ops one", project: { id: "proj_ops", name: "Ops" } }),
   ];
 
-  it("sit inline on a desktop", async () => {
+  it("open from one Filter button as a menu on a desktop, and show what's on as chips", async () => {
     await renderPage(todos());
-    expect(screen.getByRole("combobox", { name: "Filter by project" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Filter/ })).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter" }), { key: "Enter" });
+    const menu = await screen.findByRole("menu");
+    fireEvent.click(within(menu).getByRole("menuitemcheckbox", { name: /^Ops/ }));
+    await waitFor(() => expect(screen.queryByText("Web one")).toBeNull());
+    expect(screen.getByText("Ops one")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Filter, 1 on" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear the project filter: Ops" }));
+    expect(screen.getByText("Web one")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Filter" })).toBeTruthy();
   });
 
   it("sit behind one Filter button on a phone, in a sheet", async () => {
     narrow = true;
     await renderPage(todos());
-    expect(screen.queryByRole("combobox", { name: "Filter by project" })).toBeNull();
+    expect(screen.queryByRole("menuitemcheckbox")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Filter" }));
     const sheet = await screen.findByRole("dialog", { name: "Filters" });
-    fireEvent.change(await within(sheet).findByRole("combobox", { name: "Filter by project" }), { target: { value: "proj_ops" } });
-    expect(screen.queryByText("Web one")).toBeNull();
+    fireEvent.click(await within(sheet).findByRole("menuitemcheckbox", { name: /^Ops/ }));
+    await waitFor(() => expect(screen.queryByText("Web one")).toBeNull());
     expect(screen.getByText("Ops one")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Filter, 1 on" })).toBeTruthy();
+    // A phone shows the count on the button, not the chips.
+    expect(screen.queryByRole("button", { name: /^Clear the project filter/ })).toBeNull();
 
-    fireEvent.click(within(sheet).getByRole("button", { name: "Clear filters" }));
-    expect(screen.getByText("Web one")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Filter, 1 on" }));
+    fireEvent.click(await within(await screen.findByRole("dialog", { name: "Filters" })).findByRole("menuitem", { name: "Clear filters" }));
+    await waitFor(() => expect(screen.getByText("Web one")).toBeTruthy());
+  });
+});
+
+describe("status moves off the card face (BBP-64)", () => {
+  it("keep a folded Board card to its title and meta, and show the moves once unfolded", async () => {
+    const todos = [task({ title: "Open one", blocking: true })];
+    await openBoard(todos);
+    const card = cardOf("Open one");
+    expect(card.queryByRole("checkbox")).toBeNull();
+    expect(card.queryByRole("button", { name: /^(Mark done|Move to)/ })).toBeNull();
+    expect(card.getByText("Blocking")).toBeTruthy();
+
+    unfold("Open one");
+    expect(card.getByRole("button", { name: "Mark done" })).toBeTruthy();
+    expect(card.getByRole("button", { name: "Move to In progress" })).toBeTruthy();
+    expect(card.getByRole("button", { name: "Let the agent do it" })).toBeTruthy();
+  });
+
+  it("send an unfolded desktop card's Mark done through the check-off, reply prompt first", async () => {
+    const todos = [task({ title: "Reply one", replyPrompt: "Which region?" }), task({ title: "Plain one" })];
+    const { setStatusCalls } = await openBoard(todos);
+    unfold("Reply one");
+    fireEvent.click(cardOf("Reply one").getByRole("button", { name: "Mark done" }));
+    const answer = cardOf("Reply one").getByRole("textbox", { name: "Which region?" });
+    await waitFor(() => expect(document.activeElement).toBe(answer));
+    expect(setStatusCalls).toEqual([]);
+
+    unfold("Plain one");
+    fireEvent.click(cardOf("Plain one").getByRole("button", { name: "Move to In progress" }));
+    await waitFor(() => expect(setStatusCalls).toEqual([{ id: todos[1]!.id, status: "in_progress" }]));
+  });
+});
+
+describe("List rows on a desktop (BBP-64)", () => {
+  it("fold to one line with one key chip, and unfold to every badge and where it came from", async () => {
+    await renderPage([
+      task({ title: "Blocker one", blocking: true, dueAt: Date.now() + 2 * 86_400_000, thread: { id: "thr_asker", title: "Asker thread", state: "live" } }),
+    ]);
+    const row = cardOf("Blocker one");
+    expect(row.getByText("Blocking")).toBeTruthy();
+    expect(row.queryByText("Due in 2d")).toBeNull();
+    expect(row.queryByText("Asker thread")).toBeNull();
+    expect(row.getByRole("checkbox", { name: 'Mark "Blocker one" done' })).toBeTruthy();
+    // The overflow menu is in the row; it shows on hover or focus.
+    expect(row.getByRole("button", { name: "More actions" })).toBeTruthy();
+
+    unfold("Blocker one");
+    expect(row.getByText("Due in 2d")).toBeTruthy();
+    expect(row.getByText("Asker thread")).toBeTruthy();
+    expect(row.getByRole("button", { name: "Mark done" })).toBeTruthy();
+  });
+
+  it("carry their counts in the group headings and the To do scope, with no stat cards", async () => {
+    await renderPage([task({ title: "Blocker one", blocking: true }), task({ title: "Plain one" }), task({ title: "Other one" })]);
+    expect(screen.getByRole("heading", { name: /^Blocking an agent\s*1/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /^Waiting on you\s*2/ })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "To do 3" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByText("Done by agents")).toBeNull();
   });
 });

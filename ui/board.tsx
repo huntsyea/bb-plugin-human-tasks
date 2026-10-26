@@ -1,7 +1,7 @@
 // The Board view: To do, In progress and Done columns. Side by side on a
 // desktop, where cards can be dragged between columns; one column at a time on
-// a phone, where a card moves through its status actions instead. Every move
-// goes through the card's own check-off path (see board-card.tsx).
+// a phone, where an unfolded card moves through its status buttons instead.
+// Every move goes through the card's own check-off path (see board-card.tsx).
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { TodoView } from "../server";
@@ -15,6 +15,11 @@ import { Segmented } from "./segmented";
 import { TaskCard } from "./task-card";
 
 const COLUMNS: readonly BoardStatus[] = ["open", "in_progress", "done"];
+const COLUMN_ICON: Record<BoardStatus, { icon: string; className: string }> = {
+  open: { icon: "human-tasks/circle", className: "text-subtle-foreground" },
+  in_progress: { icon: "human-tasks/circle-half", className: "text-warning" },
+  done: { icon: "human-tasks/check-circle", className: "text-success" },
+};
 
 function columnOf(task: TodoView): BoardStatus {
   return task.status === "dismissed" ? "done" : task.status;
@@ -23,7 +28,7 @@ function columnOf(task: TodoView): BoardStatus {
 function Cards({ tasks, focusId }: { tasks: TodoView[]; focusId: string | null }) {
   if (tasks.length === 0) return null;
   return (
-    <ul className="space-y-2">
+    <ul className="flex flex-col gap-1.5">
       {tasks.map((task) => (
         <TaskCard key={task.id} task={task} focused={task.id === focusId} />
       ))}
@@ -36,15 +41,15 @@ function Snoozed({ tasks, focusId }: { tasks: TodoView[]; focusId: string | null
   const [open, setOpen] = useState(tasks.some((task) => task.id === focusId));
   if (tasks.length === 0) return null;
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-1.5">
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex items-center gap-1 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground max-md:min-h-11"
+        className="flex items-center gap-1 self-start rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-state-hover hover:text-foreground max-md:min-h-11"
       >
-        <Icon name="ChevronRight" className={cn("size-3 transition-transform", open && "rotate-90")} />
-        Snoozed <span className="tabular-nums">{tasks.length}</span>
+        <Icon name="ChevronRight" className={cn("size-3.5 transition-transform", open && "rotate-90")} />
+        Snoozed <span className="tabular-nums text-subtle-foreground">{tasks.length}</span>
       </button>
       {open ? <Cards tasks={tasks} focusId={focusId} /> : null}
     </div>
@@ -73,17 +78,18 @@ function Column({
       aria-label={title}
       {...drop.props}
       className={cn(
-        "flex min-w-0 flex-col gap-2 transition-colors",
-        !compact && "min-h-24 rounded-xl bg-muted/30 p-2",
-        drop.active && "bg-primary/5 ring-1 ring-primary/40",
+        "flex min-w-0 flex-col gap-1.5 transition-colors",
+        !compact && "min-h-32 rounded-lg bg-surface-recessed p-1.5",
+        drop.active && "bg-state-hover ring-1 ring-inset ring-ring",
       )}
     >
       {compact ? null : (
-        <h2 className="flex items-baseline gap-2 px-1 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {title} <span className="tabular-nums">{count}</span>
+        <h2 className="flex items-center gap-2 px-1.5 pb-1 pt-1 text-sm font-medium text-foreground">
+          <Icon name={COLUMN_ICON[status].icon} className={cn("size-3.5 shrink-0", COLUMN_ICON[status].className)} />
+          {title} <span className="font-normal tabular-nums text-subtle-foreground">{count}</span>
         </h2>
       )}
-      {count === 0 ? <p className="px-1 py-6 text-center text-sm text-muted-foreground">Nothing in {title}</p> : null}
+      {count === 0 ? <p className="px-1.5 py-6 text-center text-xs text-subtle-foreground">Nothing in {title}</p> : null}
       {children}
       {footer}
     </section>
@@ -110,7 +116,7 @@ export function Board({ tasks, focusId }: { tasks: TodoView[]; focusId: string |
           options={COLUMNS.map((status) => ({ value: status, label: BOARD_COLUMN_TITLE[status], count: inColumn(status).length }))}
         />
       ) : null}
-      <div className="grid gap-3 md:grid-cols-3 md:items-start">
+      <div className="grid gap-2 md:grid-cols-3 md:items-start">
         {(compact ? [shown] : COLUMNS).map((status) => {
           const members = inColumn(status);
           const awake = members.filter((task) => status === "done" || !isSnoozed(task));
@@ -146,13 +152,13 @@ function DismissedSwitch({ on, onChange, count }: { on: boolean; onChange: (on: 
       aria-checked={on}
       aria-label="Show dismissed"
       onClick={() => onChange(!on)}
-      className="flex items-center gap-2 self-start rounded-md px-1 text-xs text-muted-foreground hover:text-foreground max-md:min-h-11"
+      className="flex items-center gap-2 self-start rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-state-hover hover:text-foreground max-md:min-h-11"
     >
-      <span className={cn("relative h-4 w-7 rounded-full transition-colors", on ? "bg-foreground" : "bg-muted-foreground/30")}>
-        <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-transform", on ? "translate-x-3.5" : "translate-x-0.5")} />
+      <span className={cn("relative h-3.5 w-6 rounded-full transition-colors", on ? "bg-foreground" : "bg-input")}>
+        <span className={cn("absolute top-0.5 size-2.5 rounded-full bg-background transition-transform", on ? "translate-x-3" : "translate-x-0.5")} />
       </span>
       Show dismissed
-      {count > 0 ? <span className="tabular-nums">{count}</span> : null}
+      {count > 0 ? <span className="tabular-nums text-subtle-foreground">{count}</span> : null}
     </button>
   );
 }

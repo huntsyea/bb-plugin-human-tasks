@@ -34,14 +34,15 @@ export function Badge({ tone = "neutral", icon, title, children }: { tone?: Tone
     <span
       title={title}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-4",
-        tone === "neutral" && "bg-muted text-muted-foreground",
-        tone === "danger" && "bg-destructive/10 text-destructive",
-        tone === "accent" && "bg-primary/10 text-primary",
-        tone === "success" && "bg-primary/10 text-primary",
+        "inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border px-1.5 text-[11px] font-medium leading-none",
+        tone === "danger" ? "border-destructive/30 text-destructive-text" : "border-border text-muted-foreground",
       )}
     >
-      {icon ? <Icon name={icon} className="size-3" /> : null}
+      {icon ? (
+        <Icon name={icon} className={cn("size-3", tone === "accent" && "text-foreground", tone === "success" && "text-success")} />
+      ) : tone === "danger" ? (
+        <span aria-hidden="true" className="size-1.5 rounded-full bg-destructive" />
+      ) : null}
       {children}
     </span>
   );
@@ -60,8 +61,8 @@ export function TaskBadges({ task }: { task: TodoView }) {
         </Badge>
       ) : null}
       {task.waitingInThread ? (
-        <Badge tone="danger" title="The requesting thread shows this task as a form and waits for you">
-          <span className="size-1.5 animate-pulse rounded-full bg-current" />
+        <Badge title="The requesting thread shows this task as a form and waits for you">
+          <span className="size-1.5 animate-pulse rounded-full bg-destructive" />
           Waiting in thread
         </Badge>
       ) : null}
